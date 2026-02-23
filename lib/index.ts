@@ -15,7 +15,6 @@ type Snapshot = {
 type Folder = {
   path: string;
   entries: (Folder | File)[];
-  size: number;
 };
 
 // A file is some data, labelled, with a file extension.
@@ -25,11 +24,27 @@ type File = {
   size: number;
 };
 
-interface Source {
-  load(numSnapshots: number, path?: string): Repository;
-}
+export class GitRepository {
+  private rootPath: string;
 
-export class GitRepository implements Source {
+  constructor(path?: string) {
+    if (!path) {
+      path = process.cwd();
+    }
+
+    this.rootPath = path;
+
+    // check if git repository
+    const { stdout: isInsideWorkTree } = Bun.spawn([
+      "git",
+      "rev-parse",
+      "--is-inside-work-tree",
+    ]);
+    if (isInsideWorkTree.toString().trim() !== "true") {
+      throw new Error("Not a git repository");
+    }
+  }
+
   load(numSnapshots: number, path?: string): Repository {
     // check if git repository
     const { stdout: isInsideWorkTree } = Bun.spawn([
@@ -75,7 +90,7 @@ export class GitRepository implements Source {
         };
       });
 
-      const folder = parseFolder(files);
+      const folder = parseGitFlatFiles(files);
       snapshots.push({
         id: commitHash,
         src: folder,
@@ -90,26 +105,20 @@ export class GitRepository implements Source {
   }
 }
 
-export class TestRepository implements Source {
-  load(numSnapshots: number, path?: string): Repository {
-    throw new Error("Method not implemented.");
-  }
-}
-
-// Given a rootPath, recursively traverse to generate a complete Folder structure
-function parseFolder(gitFiles: { path: string; size: number }[]): Folder {
+export function parseGitFlatFiles(
+  files: { path: string; size: number }[],
+): Folder {
   const folder: Folder = {
     path: "",
     entries: [],
-    size: 0,
   };
 
-  for (const file of gitFiles) {
+  for (const file of files) {
     const path = file.path;
     const size = file.size;
     if (path.endsWith("/")) {
-      const folder = parseFolder(
-        gitFiles.filter((f) => f.path.startsWith(path)),
+      const folder = parseGitFlatFiles(
+        files.filter((f) => f.path.startsWith(path)),
       );
       folder.entries.push(folder);
     } else {
