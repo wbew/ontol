@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { parseGitFlatFiles, type Folder, type FileEntry } from "./index";
+import { parseGitFlatFiles, toD3, type Folder, type FileEntry } from "./index";
 
 function isFolder(e: Folder | FileEntry): e is Folder {
   return "entries" in e;
@@ -48,4 +48,28 @@ test("empty input returns empty root", () => {
   const root = parseGitFlatFiles([]);
   expect(root.path).toBe("");
   expect(root.entries).toHaveLength(0);
+});
+
+test("toD3 converts folder tree to d3 hierarchy shape", () => {
+  const folder = parseGitFlatFiles([
+    { path: "src/a.ts", size: 100 },
+    { path: "src/lib/b.ts", size: 200 },
+    { path: "README.md", size: 50 },
+  ]);
+
+  const d3tree = toD3(folder);
+
+  expect(d3tree.name).toBe("/");
+  expect(d3tree.children).toHaveLength(2);
+
+  const src = d3tree.children!.find((c) => c.name === "src")!;
+  expect(src.children).toHaveLength(2);
+
+  const lib = src.children!.find((c) => c.name === "lib")!;
+  expect(lib.children).toHaveLength(1);
+  expect(lib.children![0]).toEqual({ name: "b.ts", value: 200 });
+
+  const readme = d3tree.children!.find((c) => c.name === "README.md")!;
+  expect(readme.value).toBe(50);
+  expect(readme.children).toBeUndefined();
 });

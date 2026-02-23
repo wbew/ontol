@@ -1,13 +1,70 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>viz</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ontol</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #eee; }
+    svg { display: block; width: 100vw; height: 100vh; }
+    .node text { font-size: 11px; fill: #fff; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <svg id="treemap"></svg>
+  <script type="module">
+    import * as d3 from "https://esm.sh/d3@7";
+
+    const data = await fetch("/api/tree").then(r => r.json());
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    const size = Math.min(width, height);
+
+    const root = d3.hierarchy(data)
+      .sum(d => d.value || 0)
+      .sort((a, b) => (b.value || 0) - (a.value || 0));
+
+    d3.pack()
+      .size([size, size])
+      .padding(3)(root);
+
+    const color = d3.scaleOrdinal(d3.schemeTableau10);
+
+    const svg = d3.select("#treemap")
+      .attr("viewBox", `0 0 ${size} ${size}`);
+
+    const node = svg.selectAll("g")
+      .data(root.descendants())
+      .join("g")
+      .attr("transform", d => `translate(${d.x},${d.y})`);
+
+    node.append("circle")
+      .attr("r", d => d.r)
+      .attr("fill", d => {
+        if (d.children) return "none";
+        let t = d;
+        while (t.depth > 1) t = t.parent;
+        return color(t.data.name);
+      })
+      .attr("fill-opacity", d => d.children ? 0 : 0.7)
+      .attr("stroke", d => d.children ? "#555" : "none")
+      .attr("stroke-width", d => d.children ? 0.5 : 0);
+
+    node.filter(d => !d.children && d.r > 12)
+      .append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", "0.35em")
+      .text(d => d.data.name);
+
+    node.append("title")
+      .text(d => {
+        const path = d.ancestors().reverse().map(d => d.data.name).join("/");
+        return d.children
+          ? path
+          : `${path}\n${d.value?.toLocaleString()} bytes`;
+      });
+  </script>
+</body>
 </html>

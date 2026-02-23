@@ -92,6 +92,21 @@ export class GitRepository {
   }
 }
 
+export type D3Node = {
+  name: string;
+  value?: number;
+  children?: D3Node[];
+};
+
+export function toD3(folder: Folder): D3Node {
+  const name = folder.path.split("/").pop() || "/";
+  const children: D3Node[] = folder.entries.map((entry) => {
+    if ("entries" in entry) return toD3(entry);
+    return { name: entry.path.split("/").pop() || entry.path, value: entry.size };
+  });
+  return { name, children };
+}
+
 export function parseGitFlatFiles(
   files: { path: string; size: number }[],
 ): Folder {
