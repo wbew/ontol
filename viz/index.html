@@ -6,65 +6,244 @@
   <title>ontol</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #111; color: #eee; }
-    svg { display: block; width: 100vw; height: 100vh; }
-    .node text { font-size: 11px; fill: #fff; pointer-events: none; }
+    body { font-family: system-ui, sans-serif; background: #fff; color: #333; }
+    svg { display: block; width: 100vw; height: calc(100vh - 48px); }
+    .node text { font-size: 11px; fill: #333; pointer-events: none; }
+    .folder-label { font-size: 10px; fill: #999; pointer-events: none; }
+    #bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: 48px; background: #fafafa; border-top: 1px solid #e0e0e0;
+      display: flex; align-items: flex-end; padding: 0 16px 10px;
+      font-size: 13px;
+    }
+    #notches {
+      flex: 1; display: flex; align-items: flex-end; height: 28px;
+      gap: 2px; padding: 0 4px; overflow-x: auto; overflow-y: hidden;
+      scrollbar-width: none;
+    }
+    #notches::-webkit-scrollbar { display: none; }
+    .notch {
+      flex: 0 0 6px; height: 16px;
+      background: #ccc; border-radius: 2px; cursor: pointer;
+      transition: background 0.15s, height 0.15s;
+    }
+    .notch:hover { background: #888; height: 24px; }
+    .notch.active { background: #333; height: 26px; }
+    .notch.live-active { background: #22c55e; height: 26px; }
+    .label { white-space: nowrap; color: #666; margin-left: 12px; }
+    .commit { font-family: monospace; color: #999; font-size: 12px; }
+    .live-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: #22c55e;
+      display: inline-block; margin-right: 2px;
+    }
+    #legend {
+      position: fixed; top: 12px; right: 12px;
+      background: rgba(255,255,255,0.92); border: 1px solid #e0e0e0;
+      border-radius: 6px; padding: 8px 12px; font-size: 11px;
+      display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 260px;
+    }
+    #legend .item { display: flex; align-items: center; gap: 4px; }
+    #legend .swatch {
+      width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
   <svg id="treemap"></svg>
+  <div id="legend"></div>
+  <div id="bar">
+    <div id="notches"></div>
+    <span class="label" id="info-label"></span>
+  </div>
   <script type="module">
     import * as d3 from "https://esm.sh/d3@7";
 
-    const data = await fetch("/api/tree").then(r => r.json());
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const extOf = name => {
+      const i = name.lastIndexOf(".");
+      return i > 0 ? name.slice(i + 1) : "";
+    };
 
-    const size = Math.min(width, height);
+    const extColors = {
+      ts:   "#3178c6",
+      tsx:  "#3178c6",
+      js:   "#f0db4f",
+      jsx:  "#f0db4f",
+      json: "#a8a8a8",
+      md:   "#519aba",
+      html: "#e44d26",
+      css:  "#264de4",
+      py:   "#3776ab",
+      rs:   "#dea584",
+      go:   "#00add8",
+      yaml: "#cb171e",
+      yml:  "#cb171e",
+      toml: "#9c4121",
+      sh:   "#4eaa25",
+      lock: "#c0c0c0",
+    };
+    const fallbackColor = "#ccc";
+    const colorFor = name => extColors[extOf(name)] || fallbackColor;
 
-    const root = d3.hierarchy(data)
-      .sum(d => d.value || 0)
-      .sort((a, b) => (b.value || 0) - (a.value || 0));
+    // Build legend — group extensions that share the same color
+    const colorToExts = {};
+    for (const [ext, c] of Object.entries(extColors)) {
+      (colorToExts[c] ||= []).push("." + ext);
+    }
+    const legendEl = document.getElementById("legend");
+    for (const [c, exts] of Object.entries(colorToExts)) {
+      const item = document.createElement("span");
+      item.className = "item";
+      item.innerHTML = `<span class="swatch" style="background:${c}"></span>${exts.join(" ")}`;
+      legendEl.appendChild(item);
+    }
+    // "other" fallback
+    const other = document.createElement("span");
+    other.className = "item";
+    other.innerHTML = `<span class="swatch" style="background:${fallbackColor}"></span>other`;
+    legendEl.appendChild(other);
 
-    d3.pack()
-      .size([size, size])
-      .padding(3)(root);
+    const svg = d3.select("#treemap");
+    const notchesEl = document.getElementById("notches");
+    const infoLabel = document.getElementById("info-label");
 
-    const color = d3.scaleOrdinal(d3.schemeTableau10);
+    let snapshots = [];
+    let activeIndex = -1;
+    let pollTimer = null;
+    let prevJson = "";
 
-    const svg = d3.select("#treemap")
-      .attr("viewBox", `0 0 ${size} ${size}`);
+    function isAtEnd() {
+      return activeIndex === snapshots.length - 1;
+    }
 
-    const node = svg.selectAll("g")
-      .data(root.descendants())
-      .join("g")
-      .attr("transform", d => `translate(${d.x},${d.y})`);
+    function render(data) {
+      const size = Math.min(window.innerWidth, window.innerHeight - 48);
 
-    node.append("circle")
-      .attr("r", d => d.r)
-      .attr("fill", d => {
-        if (d.children) return "none";
-        let t = d;
-        while (t.depth > 1) t = t.parent;
-        return color(t.data.name);
-      })
-      .attr("fill-opacity", d => d.children ? 0 : 0.7)
-      .attr("stroke", d => d.children ? "#555" : "none")
-      .attr("stroke-width", d => d.children ? 0.5 : 0);
+      const root = d3.hierarchy(data)
+        .sum(d => d.value || 0)
+        .sort((a, b) => (b.value || 0) - (a.value || 0));
 
-    node.filter(d => !d.children && d.r > 12)
-      .append("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", "0.35em")
-      .text(d => d.data.name);
+      d3.pack().size([size, size]).padding(3)(root);
 
-    node.append("title")
-      .text(d => {
-        const path = d.ancestors().reverse().map(d => d.data.name).join("/");
-        return d.children
-          ? path
-          : `${path}\n${d.value?.toLocaleString()} bytes`;
+      svg.attr("viewBox", `0 0 ${size} ${size}`);
+
+      const node = svg.selectAll("g")
+        .data(root.descendants(), d => d.ancestors().reverse().map(d => d.data.name).join("/"))
+        .join("g")
+        .attr("transform", d => `translate(${d.x},${d.y})`);
+
+      node.selectAll("circle").remove();
+      node.append("circle")
+        .attr("r", d => d.r)
+        .attr("fill", d => d.children ? "none" : colorFor(d.data.name))
+        .attr("fill-opacity", d => d.children ? 0 : 0.7)
+        .attr("stroke", d => d.children ? "#ddd" : "none")
+        .attr("stroke-width", d => d.children ? 0.5 : 0);
+
+      node.selectAll("text").remove();
+
+      node.filter(d => d.children && d.depth > 0 && d.r > 20)
+        .append("text")
+        .attr("class", "folder-label")
+        .attr("text-anchor", "middle")
+        .attr("dy", d => -d.r + 12)
+        .text(d => d.data.name);
+
+      node.filter(d => !d.children && d.r > 12)
+        .append("text")
+        .attr("text-anchor", "middle")
+        .attr("dy", "0.35em")
+        .attr("fill", "#333")
+        .text(d => d.data.name);
+
+      node.selectAll("title").remove();
+      node.append("title")
+        .text(d => {
+          const path = d.ancestors().reverse().map(d => d.data.name).join("/");
+          return d.children
+            ? path
+            : `${path}\n${d.value?.toLocaleString()} bytes`;
+        });
+    }
+
+    function updateNotches() {
+      const notchEls = notchesEl.querySelectorAll(".notch");
+      notchEls.forEach((el, i) => {
+        el.classList.remove("active", "live-active");
+        if (i === activeIndex) {
+          el.classList.add(isAtEnd() ? "live-active" : "active");
+          el.scrollIntoView({ inline: "nearest", block: "nearest" });
+        }
       });
+    }
+
+    function updateLabel() {
+      if (isAtEnd()) {
+        infoLabel.innerHTML = `<span class="live-dot"></span> Live`;
+      } else {
+        const snap = snapshots[activeIndex];
+        if (!snap) return;
+        const date = new Date(snap.timestamp);
+        const fmt = date.toLocaleDateString(undefined, {
+          year: "numeric", month: "short", day: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        });
+        infoLabel.innerHTML = `<span class="commit">${snap.id.slice(0, 7)}</span> ${fmt}`;
+      }
+    }
+
+    function selectSnapshot(i) {
+      activeIndex = i;
+      updateNotches();
+      if (isAtEnd()) {
+        prevJson = "";
+        pollLive();
+      } else {
+        const snap = snapshots[i];
+        if (snap) render(snap.tree);
+      }
+      updateLabel();
+    }
+
+    function buildNotches() {
+      notchesEl.innerHTML = "";
+      snapshots.forEach((_, i) => {
+        const el = document.createElement("div");
+        el.className = "notch";
+        el.title = snapshots[i].id.slice(0, 7);
+        el.addEventListener("click", () => selectSnapshot(i));
+        notchesEl.appendChild(el);
+      });
+      // Scroll to end
+      notchesEl.scrollLeft = notchesEl.scrollWidth;
+    }
+
+    // Scroll wheel on notches steps through snapshots
+    notchesEl.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const dir = e.deltaY > 0 ? 1 : -1;
+      const next = Math.max(0, Math.min(snapshots.length - 1, activeIndex + dir));
+      if (next !== activeIndex) selectSnapshot(next);
+    }, { passive: false });
+
+    async function pollLive() {
+      if (!isAtEnd()) return;
+      try {
+        const data = await fetch("/api/tree").then(r => r.json());
+        const json = JSON.stringify(data);
+        if (json !== prevJson) { prevJson = json; render(data); }
+      } catch {}
+    }
+
+    // Load history, then start
+    const data = await fetch("/api/snapshots").then(r => r.json());
+    snapshots = data.reverse(); // oldest first
+    activeIndex = snapshots.length - 1;
+    buildNotches();
+    updateNotches();
+    updateLabel();
+
+    pollLive();
+    pollTimer = setInterval(pollLive, 2000);
   </script>
 </body>
 </html>

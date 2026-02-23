@@ -1,8 +1,20 @@
 import { GitRepository, toD3 } from "../lib/index.ts";
 
-const repo = new GitRepository();
-const { snapshots } = repo.load(1);
-const tree = toD3(snapshots[0]!.src);
+function getLiveTree() {
+  const repo = new GitRepository();
+  const { snapshots } = repo.load(1);
+  return toD3(snapshots[0]!.src);
+}
+
+function getSnapshots() {
+  const repo = new GitRepository();
+  const { snapshots } = repo.load(100);
+  return snapshots.map(s => ({
+    id: s.id,
+    timestamp: s.timestamp.toISOString(),
+    tree: toD3(s.src),
+  }));
+}
 
 const server = Bun.serve({
   port: 0,
@@ -10,7 +22,12 @@ const server = Bun.serve({
     "/": new Response(await Bun.file(import.meta.dir + "/index.html").text(), {
       headers: { "Content-Type": "text/html" },
     }),
-    "/api/tree": Response.json(tree),
+  },
+  fetch(req) {
+    const url = new URL(req.url);
+    if (url.pathname === "/api/tree") return Response.json(getLiveTree());
+    if (url.pathname === "/api/snapshots") return Response.json(getSnapshots());
+    return new Response("Not found", { status: 404 });
   },
 });
 
