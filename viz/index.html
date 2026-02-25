@@ -9,8 +9,9 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'DM Sans', sans-serif; background: #fff; color: #333; }
     svg { display: block; width: 100vw; height: 100vh; }
-    .node text { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #333; pointer-events: none; }
+    .file-label { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #333; pointer-events: none; }
     .folder-label { font-family: 'DM Sans', sans-serif; font-size: 10px; fill: #999; pointer-events: none; }
+    circle { transition: stroke 0.2s; }
 
     #pill {
       position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
@@ -178,22 +179,78 @@
     let activeIndex = -1;
     let pollTimer = null;
     let prevJson = "";
+    let currentRoot = null;
+    let focus = null;
+    let view = null;
+    let packSize = 0;
 
     function isAtEnd() {
       return activeIndex === snapshots.length - 1;
     }
 
+    function applyLabels(v, duration = 0) {
+      const k = packSize / v[2];
+      const fontScale = v[2] / packSize;
+
+      const folderSel = svg.selectAll(".folder-label");
+      const folderS = duration > 0 ? folderSel.transition().duration(duration) : folderSel;
+      folderS
+        .style("opacity", function() {
+          const d = d3.select(this.parentNode).datum();
+          return d.r * k > 20 ? 1 : 0;
+        })
+        .style("font-size", (10 * fontScale) + "px")
+        .attr("dy", function() {
+          const d = d3.select(this.parentNode).datum();
+          return -d.r + 12 * fontScale;
+        });
+
+      const fileSel = svg.selectAll(".file-label");
+      const fileS = duration > 0 ? fileSel.transition().duration(duration) : fileSel;
+      fileS
+        .style("opacity", function() {
+          const d = d3.select(this.parentNode).datum();
+          return d.r * k > 12 ? 1 : 0;
+        })
+        .style("font-size", (11 * fontScale) + "px");
+    }
+
+    function zoomTo(node) {
+      if (!node || focus === node) return;
+      focus = node;
+      const targetView = [node.x, node.y, node.r * 2];
+
+      svg.transition()
+        .duration(750)
+        .attrTween("viewBox", () => {
+          const i = d3.interpolate(view, targetView);
+          return t => {
+            view = i(t);
+            return `${view[0] - view[2]/2} ${view[1] - view[2]/2} ${view[2]} ${view[2]}`;
+          };
+        });
+
+      applyLabels(targetView, 750);
+    }
+
     function render(data) {
       buildLegend(data);
-      const size = Math.min(window.innerWidth, window.innerHeight);
+      packSize = Math.min(window.innerWidth, window.innerHeight);
 
       const root = d3.hierarchy(data)
         .sum(d => d.value || 0)
         .sort((a, b) => (b.value || 0) - (a.value || 0));
 
-      d3.pack().size([size, size]).padding(3)(root);
+      d3.pack().size([packSize, packSize]).padding(3)(root);
 
-      svg.attr("viewBox", `0 0 ${size} ${size}`);
+      currentRoot = root;
+      focus = root;
+      view = [root.x, root.y, root.r * 2];
+
+      svg.attr("viewBox", `${view[0] - view[2]/2} ${view[1] - view[2]/2} ${view[2]} ${view[2]}`);
+
+      // Click background to zoom back to root
+      svg.on("click", () => zoomTo(currentRoot));
 
       const node = svg.selectAll("g")
         .data(root.descendants(), d => d.ancestors().reverse().map(d => d.data.name).join("/"))
@@ -203,25 +260,36 @@
       node.selectAll("circle").remove();
       node.append("circle")
         .attr("r", d => d.r)
-        .attr("fill", d => d.children ? "none" : colorFor(d.data.name))
+        .attr("fill", d => d.children ? "#fff" : colorFor(d.data.name))
         .attr("fill-opacity", d => d.children ? 0 : 0.7)
         .attr("stroke", d => d.children ? "#ddd" : "none")
-        .attr("stroke-width", d => d.children ? 0.5 : 0);
+        .attr("stroke-width", d => d.children ? 0.5 : 0)
+        .style("cursor", d => d.children ? "pointer" : null)
+        .on("click", (event, d) => {
+          event.stopPropagation();
+          if (d.children && focus !== d) {
+            zoomTo(d);
+          } else {
+            zoomTo(focus.parent || currentRoot);
+          }
+        });
 
       node.selectAll("text").remove();
 
-      node.filter(d => d.children && d.depth > 0 && d.r > 20)
+      // Folder labels — all folders (visibility controlled by applyLabels)
+      node.filter(d => d.children && d.depth > 0)
         .append("text")
         .attr("class", "folder-label")
         .attr("text-anchor", "middle")
         .attr("dy", d => -d.r + 12)
         .text(d => d.data.name);
 
-      node.filter(d => !d.children && d.r > 12)
+      // File labels — all files (visibility controlled by applyLabels)
+      node.filter(d => !d.children)
         .append("text")
+        .attr("class", "file-label")
         .attr("text-anchor", "middle")
         .attr("dy", "0.35em")
-        .attr("fill", "#333")
         .text(d => d.data.name);
 
       node.selectAll("title").remove();
@@ -232,6 +300,9 @@
             ? path
             : `${path}\n${d.value?.toLocaleString()} bytes`;
         });
+
+      // Set initial label visibility (no transition)
+      applyLabels(view);
     }
 
     function updateNotches() {
