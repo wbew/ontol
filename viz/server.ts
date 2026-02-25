@@ -56,14 +56,15 @@ function getSnapshotTree(commitId: string): string | null {
 
 // --- Server ---
 
-const server = Bun.serve({
-  port: 0,
-  routes: {
-    "/": new Response(await Bun.file(import.meta.dir + "/index.html").text(), {
-      headers: { "Content-Type": "text/html" },
-    }),
-  },
-  fetch(req) {
+const DEFAULT_PORT = 4747;
+
+const indexHtml = new Response(await Bun.file(import.meta.dir + "/index.html").text(), {
+  headers: { "Content-Type": "text/html" },
+});
+
+const serverOpts = {
+  routes: { "/": indexHtml },
+  fetch(req: Request) {
     const url = new URL(req.url);
 
     if (url.pathname === "/api/snapshots") {
@@ -72,7 +73,6 @@ const server = Bun.serve({
       });
     }
 
-    // /api/snapshot/:id
     const snapshotMatch = url.pathname.match(/^\/api\/snapshot\/([a-f0-9]+)$/);
     if (snapshotMatch) {
       const json = getSnapshotTree(snapshotMatch[1]);
@@ -84,6 +84,14 @@ const server = Bun.serve({
 
     return new Response("Not found", { status: 404 });
   },
-});
+};
+
+let server: ReturnType<typeof Bun.serve>;
+try {
+  server = Bun.serve({ port: DEFAULT_PORT, ...serverOpts });
+} catch {
+  server = Bun.serve({ port: 0, ...serverOpts });
+  console.warn(`Port ${DEFAULT_PORT} is in use, falling back to ${server.port}`);
+}
 
 console.log(`Ontol viz → http://localhost:${server.port}`);
