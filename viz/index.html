@@ -88,12 +88,12 @@
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 12px; padding: 10px 14px; font-size: 11px;
-      display: flex; flex-wrap: wrap; gap: 5px 14px; max-width: 280px;
+      border-radius: 12px; padding: 12px 16px; font-size: 11px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px;
       color: rgba(255,255,255,0.6);
       box-shadow: 0 2px 12px rgba(0,0,0,0.08);
     }
-    #legend .item { display: flex; align-items: center; gap: 5px; }
+    #legend .item { display: flex; align-items: center; gap: 6px; }
     #legend .swatch {
       width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
     }
@@ -135,23 +135,40 @@
     const fallbackColor = "#ccc";
     const colorFor = name => extColors[extOf(name)] || fallbackColor;
 
-    // Build legend — group extensions that share the same color
-    const colorToExts = {};
-    for (const [ext, c] of Object.entries(extColors)) {
-      (colorToExts[c] ||= []).push("." + ext);
-    }
     const legendEl = document.getElementById("legend");
-    for (const [c, exts] of Object.entries(colorToExts)) {
-      const item = document.createElement("span");
-      item.className = "item";
-      item.innerHTML = `<span class="swatch" style="background:${c}"></span>${exts.join(" ")}`;
-      legendEl.appendChild(item);
+
+    function collectExts(node) {
+      const exts = new Set();
+      (function walk(n) {
+        if (n.children) n.children.forEach(walk);
+        else { const e = extOf(n.name); exts.add(e); }
+      })(node);
+      return exts;
     }
-    // "other" fallback
-    const other = document.createElement("span");
-    other.className = "item";
-    other.innerHTML = `<span class="swatch" style="background:${fallbackColor}"></span>other`;
-    legendEl.appendChild(other);
+
+    function buildLegend(tree) {
+      const present = collectExts(tree);
+      const colorToExts = {};
+      let hasOther = false;
+      for (const ext of present) {
+        const c = extColors[ext];
+        if (c) (colorToExts[c] ||= []).push("." + ext);
+        else hasOther = true;
+      }
+      legendEl.innerHTML = "";
+      for (const [c, exts] of Object.entries(colorToExts)) {
+        const item = document.createElement("span");
+        item.className = "item";
+        item.innerHTML = `<span class="swatch" style="background:${c}"></span>${exts.join(" ")}`;
+        legendEl.appendChild(item);
+      }
+      if (hasOther) {
+        const item = document.createElement("span");
+        item.className = "item";
+        item.innerHTML = `<span class="swatch" style="background:${fallbackColor}"></span>other`;
+        legendEl.appendChild(item);
+      }
+    }
 
     const svg = d3.select("#treemap");
     const notchesEl = document.getElementById("notches");
@@ -167,6 +184,7 @@
     }
 
     function render(data) {
+      buildLegend(data);
       const size = Math.min(window.innerWidth, window.innerHeight);
 
       const root = d3.hierarchy(data)
