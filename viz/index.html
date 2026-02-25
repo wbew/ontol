@@ -72,17 +72,6 @@
       font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.35);
       font-size: 11px;
     }
-    .live-dot {
-      width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
-      display: inline-block;
-      box-shadow: 0 0 6px rgba(34,197,94,0.6);
-      animation: pulse 2s ease-in-out infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-
     #legend {
       position: fixed; bottom: 16px; right: 16px;
       background: rgba(20, 20, 22, 0.78);
@@ -202,8 +191,7 @@
 
     let snapshots = [];
     let activeIndex = -1;
-    let pollTimer = null;
-    let prevJson = "";
+    const treeCache = new Map(); // commitId → D3 tree data
     let currentRoot = null;
     let focus = null;
     let view = null;
@@ -393,7 +381,7 @@
 
     function updateLabel() {
       if (isAtEnd()) {
-        infoLabel.innerHTML = `<span class="live-dot"></span>Live`;
+        infoLabel.innerHTML = `Now`;
       } else {
         const snap = snapshots[activeIndex];
         if (!snap) return;
@@ -406,15 +394,20 @@
       }
     }
 
-    function selectSnapshot(i) {
+    async function fetchTree(commitId) {
+      if (treeCache.has(commitId)) return treeCache.get(commitId);
+      const data = await fetch(`/api/snapshot/${commitId}`).then(r => r.json());
+      treeCache.set(commitId, data);
+      return data;
+    }
+
+    async function selectSnapshot(i) {
       activeIndex = i;
       updateNotches();
-      if (isAtEnd()) {
-        prevJson = "";
-        pollLive();
-      } else {
-        const snap = snapshots[i];
-        if (snap) render(snap.tree);
+      const snap = snapshots[i];
+      if (snap) {
+        const tree = await fetchTree(snap.id);
+        render(tree);
       }
       updateLabel();
     }
@@ -440,16 +433,7 @@
       if (next !== activeIndex) selectSnapshot(next);
     }, { passive: false });
 
-    async function pollLive() {
-      if (!isAtEnd()) return;
-      try {
-        const data = await fetch("/api/tree").then(r => r.json());
-        const json = JSON.stringify(data);
-        if (json !== prevJson) { prevJson = json; render(data); }
-      } catch {}
-    }
-
-    // Load history, then start
+    // Load history (metadata only), then render latest
     const data = await fetch("/api/snapshots").then(r => r.json());
     snapshots = data.reverse(); // oldest first
     activeIndex = snapshots.length - 1;
@@ -457,8 +441,12 @@
     updateNotches();
     updateLabel();
 
-    pollLive();
-    pollTimer = setInterval(pollLive, 2000);
+    // Render the latest snapshot ("Now")
+    const latest = snapshots[activeIndex];
+    if (latest) {
+      const tree = await fetchTree(latest.id);
+      render(tree);
+    }
   </script>
 </body>
 </html>
