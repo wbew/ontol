@@ -1,0 +1,8 @@
+{
+  "name": "ontol",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "ontol": "./cli.ts"
+  }
+}

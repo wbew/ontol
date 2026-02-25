@@ -1,13 +1,15 @@
 import { GitRepository, toD3 } from "../lib/index.ts";
 
+const repoPath = process.env.ONTOL_REPO_PATH || process.cwd();
+
 function getLiveTree() {
-  const repo = new GitRepository();
+  const repo = new GitRepository(repoPath);
   const { snapshots } = repo.load(1);
   return toD3(snapshots[0]!.src);
 }
 
 function getSnapshots() {
-  const repo = new GitRepository();
+  const repo = new GitRepository(repoPath);
   const { snapshots } = repo.load(100);
   return snapshots.map(s => ({
     id: s.id,
