@@ -5,56 +5,107 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ontol</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500&display=swap');
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #fff; color: #333; }
-    svg { display: block; width: 100vw; height: calc(100vh - 48px); }
-    .node text { font-size: 11px; fill: #333; pointer-events: none; }
-    .folder-label { font-size: 10px; fill: #999; pointer-events: none; }
-    #bar {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      height: 48px; background: #fafafa; border-top: 1px solid #e0e0e0;
-      display: flex; align-items: flex-end; padding: 0 16px 10px;
-      font-size: 13px;
+    body { font-family: 'DM Sans', sans-serif; background: #fff; color: #333; }
+    svg { display: block; width: 100vw; height: 100vh; }
+    .node text { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #333; pointer-events: none; }
+    .folder-label { font-family: 'DM Sans', sans-serif; font-size: 10px; fill: #999; pointer-events: none; }
+
+    #pill {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 10;
+      width: 560px; max-width: calc(100vw - 48px);
+      background: rgba(20, 20, 22, 0.88);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 100px;
+      padding: 10px 24px;
+      display: flex; align-items: center; gap: 16px;
+      box-shadow:
+        0 4px 24px rgba(0,0,0,0.12),
+        0 1px 3px rgba(0,0,0,0.08),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+      animation: pill-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
+    @keyframes pill-in {
+      from { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
     #notches {
-      flex: 1; display: flex; align-items: flex-end; height: 28px;
-      gap: 2px; padding: 0 4px; overflow-x: auto; overflow-y: hidden;
+      flex: 1; min-width: 0;
+      display: flex; align-items: flex-end; height: 24px;
+      gap: 3px; overflow-x: auto; overflow-y: hidden;
       scrollbar-width: none;
+      padding: 0 2px;
     }
     #notches::-webkit-scrollbar { display: none; }
+
     .notch {
-      flex: 0 0 6px; height: 16px;
-      background: #ccc; border-radius: 2px; cursor: pointer;
-      transition: background 0.15s, height 0.15s;
+      flex: 0 0 8px; height: 24px;
+      background: rgba(255,255,255,0.12); border-radius: 3px; cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s;
     }
-    .notch:hover { background: #888; height: 24px; }
-    .notch.active { background: #333; height: 26px; }
-    .notch.live-active { background: #22c55e; height: 26px; }
-    .label { white-space: nowrap; color: #666; margin-left: 12px; }
-    .commit { font-family: monospace; color: #999; font-size: 12px; }
+    .notch:hover {
+      background: rgba(255,255,255,0.3);
+    }
+    .notch.active {
+      background: #fff;
+      box-shadow: 0 0 8px rgba(255,255,255,0.3);
+    }
+    .notch.live-active {
+      background: #22c55e;
+      box-shadow: 0 0 10px rgba(34,197,94,0.5);
+    }
+
+    #info-label {
+      flex: 0 0 140px; text-align: right;
+      font-size: 12px; color: rgba(255,255,255,0.5);
+      display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+      white-space: nowrap; font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+    .commit {
+      font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.35);
+      font-size: 11px;
+    }
     .live-dot {
-      width: 6px; height: 6px; border-radius: 50%; background: #22c55e;
-      display: inline-block; margin-right: 2px;
+      width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
+      display: inline-block;
+      box-shadow: 0 0 6px rgba(34,197,94,0.6);
+      animation: pulse 2s ease-in-out infinite;
     }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
     #legend {
-      position: fixed; top: 12px; right: 12px;
-      background: rgba(255,255,255,0.92); border: 1px solid #e0e0e0;
-      border-radius: 6px; padding: 8px 12px; font-size: 11px;
-      display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 260px;
+      position: fixed; bottom: 16px; right: 16px;
+      background: rgba(20, 20, 22, 0.78);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px; padding: 10px 14px; font-size: 11px;
+      display: flex; flex-wrap: wrap; gap: 5px 14px; max-width: 280px;
+      color: rgba(255,255,255,0.6);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
     }
-    #legend .item { display: flex; align-items: center; gap: 4px; }
+    #legend .item { display: flex; align-items: center; gap: 5px; }
     #legend .swatch {
-      width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
     }
   </style>
 </head>
 <body>
   <svg id="treemap"></svg>
-  <div id="legend"></div>
-  <div id="bar">
+  <div id="pill">
     <div id="notches"></div>
-    <span class="label" id="info-label"></span>
+    <div id="info-label"></div>
   </div>
+  <div id="legend"></div>
   <script type="module">
     import * as d3 from "https://esm.sh/d3@7";
 
@@ -116,7 +167,7 @@
     }
 
     function render(data) {
-      const size = Math.min(window.innerWidth, window.innerHeight - 48);
+      const size = Math.min(window.innerWidth, window.innerHeight);
 
       const root = d3.hierarchy(data)
         .sum(d => d.value || 0)
@@ -178,7 +229,7 @@
 
     function updateLabel() {
       if (isAtEnd()) {
-        infoLabel.innerHTML = `<span class="live-dot"></span> Live`;
+        infoLabel.innerHTML = `<span class="live-dot"></span>Live`;
       } else {
         const snap = snapshots[activeIndex];
         if (!snap) return;
