@@ -322,8 +322,8 @@
         .attr("r", d => d.r)
         .attr("fill", d => d.children ? "#fff" : colorFor(d.data.name))
         .attr("fill-opacity", d => d.children ? 0 : 0.7)
-        .attr("stroke", d => d.children ? "#ddd" : "none")
-        .attr("stroke-width", d => d.children ? 0.5 : 0)
+        .attr("stroke", d => d.children ? "#bbb" : "none")
+        .attr("stroke-width", d => d.children ? 2.5 : 0)
         .style("cursor", d => d.children ? "pointer" : null)
         .on("click", (event, d) => {
           event.stopPropagation();
@@ -342,6 +342,7 @@
         .attr("class", "folder-label")
         .attr("text-anchor", "middle")
         .attr("dy", d => -d.r + 12)
+        .style("font-weight", "bold")
         .text(d => d.data.name);
 
       // File labels — all files (visibility controlled by applyLabels)
@@ -350,6 +351,7 @@
         .attr("class", "file-label")
         .attr("text-anchor", "middle")
         .attr("dy", "0.35em")
+        .style("font-weight", "bold")
         .text(d => d.data.name);
 
       node.selectAll("title").remove();
@@ -425,12 +427,18 @@
       notchesEl.scrollLeft = notchesEl.scrollWidth;
     }
 
-    // Scroll wheel on notches steps through snapshots
+    // Scroll wheel on notches steps through snapshots (dampened)
+    let scrollAccum = 0;
+    const SCROLL_THRESHOLD = 80;
     notchesEl.addEventListener("wheel", (e) => {
       e.preventDefault();
-      const dir = e.deltaY > 0 ? 1 : -1;
-      const next = Math.max(0, Math.min(snapshots.length - 1, activeIndex + dir));
-      if (next !== activeIndex) selectSnapshot(next);
+      scrollAccum += e.deltaY;
+      if (Math.abs(scrollAccum) >= SCROLL_THRESHOLD) {
+        const dir = scrollAccum > 0 ? 1 : -1;
+        scrollAccum = 0;
+        const next = Math.max(0, Math.min(snapshots.length - 1, activeIndex + dir));
+        if (next !== activeIndex) selectSnapshot(next);
+      }
     }, { passive: false });
 
     // Load history (metadata only), then render latest
