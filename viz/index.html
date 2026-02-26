@@ -303,6 +303,8 @@
 
       d3.pack().size([packSize, packSize]).padding(3)(root);
 
+      const fileCount = root.leaves().length;
+      const folderStroke = fileCount > 500 ? 0.8 : fileCount > 200 ? 1.2 : fileCount > 100 ? 1.8 : 2.5;
       currentRoot = root;
       focus = root;
       view = [root.x, root.y, root.r * 2];
@@ -323,7 +325,7 @@
         .attr("fill", d => d.children ? "#fff" : colorFor(d.data.name))
         .attr("fill-opacity", d => d.children ? 0 : 0.7)
         .attr("stroke", d => d.children ? "#bbb" : "none")
-        .attr("stroke-width", d => d.children ? 2.5 : 0)
+        .attr("stroke-width", d => d.children ? folderStroke : 0)
         .style("cursor", d => d.children ? "pointer" : null)
         .on("click", (event, d) => {
           event.stopPropagation();
