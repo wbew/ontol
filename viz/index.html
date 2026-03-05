@@ -202,19 +202,23 @@
     let fileLabels = [];   // {el, r}
 
     function applyLabels(k) {
-      const scale = `scale(${1 / k})`;
+      const s = 1 / k;
 
       for (let i = 0; i < folderLabels.length; i++) {
         const { el, r } = folderLabels[i];
         const visible = r * k > 40;
         el.style.display = visible ? "" : "none";
-        if (visible) el.setAttribute("transform", scale);
+        if (visible) {
+          // Translate to top of circle in pack-space, then counter-scale
+          const offset = -r + 12 * s;
+          el.setAttribute("transform", `translate(0,${offset}) scale(${s})`);
+        }
       }
       for (let i = 0; i < fileLabels.length; i++) {
         const { el, r } = fileLabels[i];
         const visible = r * k > 18;
         el.style.display = visible ? "" : "none";
-        if (visible) el.setAttribute("transform", scale);
+        if (visible) el.setAttribute("transform", `scale(${s})`);
       }
     }
 
@@ -327,7 +331,6 @@
         .append("text")
         .attr("class", "folder-label")
         .attr("text-anchor", "middle")
-        .attr("dy", d => -d.r + 12)
         .style("font-weight", "bold")
         .text(d => d.data.name);
 
