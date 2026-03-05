@@ -11,7 +11,6 @@
     svg { display: block; width: 100vw; height: 100vh; }
     .file-label { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #333; pointer-events: none; }
     .folder-label { font-family: 'DM Sans', sans-serif; font-size: 10px; fill: #999; pointer-events: none; }
-    circle { transition: stroke 0.2s; }
 
     #pill {
       position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
@@ -154,7 +153,7 @@
       }
       legendEl.innerHTML = "";
       for (const [c, exts] of Object.entries(colorToExts)) {
-        const rawExts = exts.map(e => e.slice(1)); // strip leading dot
+        const rawExts = exts.map(e => e.slice(1));
         const item = document.createElement("span");
         item.className = "item";
         item.dataset.exts = rawExts.join(",");
@@ -186,39 +185,51 @@
     }
 
     const svg = d3.select("#treemap");
+    const g = svg.append("g");
     const notchesEl = document.getElementById("notches");
     const infoLabel = document.getElementById("info-label");
 
     let snapshots = [];
     let activeIndex = -1;
-    const treeCache = new Map(); // commitId → D3 tree data
+    const treeCache = new Map();
     let currentRoot = null;
-    let focus = null;
-    let view = null;
     let packSize = 0;
-    let activeFilters = new Set(); // empty = show all
+    let currentK = 1;
+    let activeFilters = new Set();
+
+    // Pre-cached label arrays — rebuilt on render, avoids selectAll per frame
+    let folderLabels = []; // {el, r}
+    let fileLabels = [];   // {el, r}
+
+    function applyLabels(k) {
+      const scale = `scale(${1 / k})`;
+
+      for (let i = 0; i < folderLabels.length; i++) {
+        const { el, r } = folderLabels[i];
+        const visible = r * k > 40;
+        el.style.display = visible ? "" : "none";
+        if (visible) el.setAttribute("transform", scale);
+      }
+      for (let i = 0; i < fileLabels.length; i++) {
+        const { el, r } = fileLabels[i];
+        const visible = r * k > 18;
+        el.style.display = visible ? "" : "none";
+        if (visible) el.setAttribute("transform", scale);
+      }
+    }
 
     function applyFilter() {
       const hasFilter = activeFilters.size > 0;
 
-      const k = packSize > 0 && view ? packSize / view[2] : 1;
-
-      svg.selectAll("g").each(function(d) {
-        if (!d || d.children) return; // skip folders
+      g.selectAll("g").each(function(d) {
+        if (!d || d.children) return;
         const ext = extOf(d.data.name);
         const match = !hasFilter || activeFilters.has(ext);
-        const g = d3.select(this);
-        g.select("circle")
-          .transition().duration(300)
-          .attr("fill-opacity", match ? 0.7 : 0.08);
-        // For matching labels, respect zoom-based visibility; for filtered-out, hide
-        const zoomVisible = d.r * k > 12 ? 1 : 0;
-        g.select(".file-label")
-          .transition().duration(300)
-          .style("opacity", match ? zoomVisible : 0);
+        const el = d3.select(this);
+        el.select("circle").attr("fill-opacity", match ? 0.7 : 0.08);
+        el.select(".file-label").style("opacity", match ? null : "0");
       });
 
-      // Update legend item styling
       legendEl.querySelectorAll(".item").forEach(el => {
         const exts = el.dataset.exts;
         if (!exts) return;
@@ -227,7 +238,6 @@
         el.style.opacity = hasFilter && !selected ? "0.3" : "1";
       });
 
-      // Toggle "Clear all" visibility
       const existing = legendEl.querySelector(".clear");
       if (hasFilter && !existing) {
         const clear = document.createElement("span");
@@ -248,49 +258,31 @@
       return activeIndex === snapshots.length - 1;
     }
 
-    function applyLabels(v, duration = 0) {
-      const k = packSize / v[2];
-      const fontScale = v[2] / packSize;
+    // --- d3.zoom on g transform ---
 
-      const folderSel = svg.selectAll(".folder-label");
-      const folderS = duration > 0 ? folderSel.transition().duration(duration) : folderSel;
-      folderS
-        .style("opacity", function() {
-          const d = d3.select(this.parentNode).datum();
-          return d.r * k > 20 ? 1 : 0;
-        })
-        .style("font-size", (10 * fontScale) + "px")
-        .attr("dy", function() {
-          const d = d3.select(this.parentNode).datum();
-          return -d.r + 12 * fontScale;
-        });
+    let labelRaf = 0;
+    const zoom = d3.zoom()
+      .scaleExtent([0.5, 80])
+      .on("zoom", (event) => {
+        currentK = event.transform.k;
+        g.attr("transform", event.transform);
+        cancelAnimationFrame(labelRaf);
+        labelRaf = requestAnimationFrame(() => applyLabels(currentK));
+      });
 
-      const fileSel = svg.selectAll(".file-label");
-      const fileS = duration > 0 ? fileSel.transition().duration(duration) : fileSel;
-      fileS
-        .style("opacity", function() {
-          const d = d3.select(this.parentNode).datum();
-          return d.r * k > 12 ? 1 : 0;
-        })
-        .style("font-size", (11 * fontScale) + "px");
-    }
-
-    function zoomTo(node) {
-      if (!node || focus === node) return;
-      focus = node;
-      const targetView = [node.x, node.y, node.r * 2];
-
-      svg.transition()
-        .duration(750)
-        .attrTween("viewBox", () => {
-          const i = d3.interpolate(view, targetView);
-          return t => {
-            view = i(t);
-            return `${view[0] - view[2]/2} ${view[1] - view[2]/2} ${view[2]} ${view[2]}`;
-          };
-        });
-
-      applyLabels(targetView, 750);
+    function zoomToNode(node, animate = true) {
+      if (!node) return;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const scale = Math.min(w, h) / (node.r * 2) * 0.9;
+      const tx = w / 2 - node.x * scale;
+      const ty = h / 2 - node.y * scale;
+      const t = d3.zoomIdentity.translate(tx, ty).scale(scale);
+      if (animate) {
+        svg.transition().duration(750).call(zoom.transform, t);
+      } else {
+        svg.call(zoom.transform, t);
+      }
     }
 
     function render(data) {
@@ -306,15 +298,12 @@
       const fileCount = root.leaves().length;
       const folderStroke = fileCount > 500 ? 0.8 : fileCount > 200 ? 1.2 : fileCount > 100 ? 1.8 : 2.5;
       currentRoot = root;
-      focus = root;
-      view = [root.x, root.y, root.r * 2];
 
-      svg.attr("viewBox", `${view[0] - view[2]/2} ${view[1] - view[2]/2} ${view[2]} ${view[2]}`);
+      svg.call(zoom);
+      svg.on("dblclick.zoom", null);
+      svg.on("dblclick", () => zoomToNode(currentRoot));
 
-      // Click background to zoom back to root
-      svg.on("click", () => zoomTo(currentRoot));
-
-      const node = svg.selectAll("g")
+      const node = g.selectAll("g")
         .data(root.descendants(), d => d.ancestors().reverse().map(d => d.data.name).join("/"))
         .join("g")
         .attr("transform", d => `translate(${d.x},${d.y})`);
@@ -329,16 +318,11 @@
         .style("cursor", d => d.children ? "pointer" : null)
         .on("click", (event, d) => {
           event.stopPropagation();
-          if (d.children && focus !== d) {
-            zoomTo(d);
-          } else {
-            zoomTo(focus.parent || currentRoot);
-          }
+          if (d.children) zoomToNode(d);
         });
 
       node.selectAll("text").remove();
 
-      // Folder labels — all folders (visibility controlled by applyLabels)
       node.filter(d => d.children && d.depth > 0)
         .append("text")
         .attr("class", "folder-label")
@@ -347,7 +331,6 @@
         .style("font-weight", "bold")
         .text(d => d.data.name);
 
-      // File labels — all files (visibility controlled by applyLabels)
       node.filter(d => !d.children)
         .append("text")
         .attr("class", "file-label")
@@ -365,10 +348,21 @@
             : `${path}\n${d.value?.toLocaleString()} bytes`;
         });
 
-      // Set initial label visibility (no transition)
-      applyLabels(view);
+      // Rebuild label caches
+      folderLabels = [];
+      fileLabels = [];
+      g.selectAll(".folder-label").each(function() {
+        const d = d3.select(this.parentNode).datum();
+        folderLabels.push({ el: this, r: d.r });
+      });
+      g.selectAll(".file-label").each(function() {
+        const d = d3.select(this.parentNode).datum();
+        fileLabels.push({ el: this, r: d.r });
+      });
 
-      // Re-apply legend filters so they persist across snapshot changes
+      // Initial fit — no animation, no flash
+      zoomToNode(currentRoot, false);
+      applyLabels(currentK);
       applyFilter();
     }
 
@@ -425,15 +419,14 @@
         el.addEventListener("click", () => selectSnapshot(i));
         notchesEl.appendChild(el);
       });
-      // Scroll to end
       notchesEl.scrollLeft = notchesEl.scrollWidth;
     }
 
-    // Scroll wheel on notches steps through snapshots (dampened)
     let scrollAccum = 0;
     const SCROLL_THRESHOLD = 80;
     notchesEl.addEventListener("wheel", (e) => {
       e.preventDefault();
+      e.stopPropagation();
       scrollAccum += e.deltaY;
       if (Math.abs(scrollAccum) >= SCROLL_THRESHOLD) {
         const dir = scrollAccum > 0 ? 1 : -1;
@@ -443,26 +436,22 @@
       }
     }, { passive: false });
 
-    // Check mode from server
     const { timeline: timelineMode } = await fetch("/api/mode").then(r => r.json());
 
     if (timelineMode) {
-      // Load history (metadata only), then render latest
       const data = await fetch("/api/snapshots").then(r => r.json());
-      snapshots = data.reverse(); // oldest first
+      snapshots = data.reverse();
       activeIndex = snapshots.length - 1;
       buildNotches();
       updateNotches();
       updateLabel();
 
-      // Render the latest snapshot ("Now")
       const latest = snapshots[activeIndex];
       if (latest) {
         const tree = await fetchTree(latest.id);
         render(tree);
       }
     } else {
-      // Single snapshot mode — hide timeline pill, load HEAD directly
       document.getElementById("pill").style.display = "none";
       const tree = await fetch("/api/tree").then(r => r.json());
       render(tree);
