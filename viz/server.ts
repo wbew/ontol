@@ -1,6 +1,7 @@
 import { GitRepository, toD3, parseGitFlatFiles } from "../lib/index.ts";
 
 const repoPath = process.env.ONTOL_REPO_PATH || process.cwd();
+const timelineMode = process.env.ONTOL_TIMELINE === "1";
 
 // --- Caches ---
 
@@ -29,6 +30,30 @@ function getSnapshotMeta(): string {
   }
   snapshotMetaCache = { headHash: hash, meta };
   return meta;
+}
+
+function getHeadTree(): string {
+  const hash = getHeadHash();
+  if (snapshotTreeCache.has(hash)) return snapshotTreeCache.get(hash)!;
+  const result = Bun.spawnSync(
+    ["git", "ls-tree", "-r", "--long", hash],
+    { cwd: repoPath },
+  );
+  const output = result.stdout.toString().trim();
+  if (!output) return "{}";
+  const files: { path: string; size: number }[] = [];
+  for (const line of output.split("\n")) {
+    if (!line) continue;
+    const tabIdx = line.indexOf("\t");
+    if (tabIdx === -1) continue;
+    const meta = line.slice(0, tabIdx).trim();
+    const filePath = line.slice(tabIdx + 1);
+    const size = parseInt(meta.split(/\s+/)[3] ?? "0", 10);
+    files.push({ path: filePath, size });
+  }
+  const json = JSON.stringify(toD3(parseGitFlatFiles(files)));
+  snapshotTreeCache.set(hash, json);
+  return json;
 }
 
 function getSnapshotTree(commitId: string): string | null {
@@ -67,6 +92,18 @@ const serverOpts = {
   fetch(req: Request) {
     const url = new URL(req.url);
 
+    if (url.pathname === "/api/mode") {
+      return new Response(JSON.stringify({ timeline: timelineMode }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.pathname === "/api/tree") {
+      return new Response(getHeadTree(), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     if (url.pathname === "/api/snapshots") {
       return new Response(getSnapshotMeta(), {
         headers: { "Content-Type": "application/json" },
@@ -94,4 +131,4 @@ try {
   console.warn(`Port ${DEFAULT_PORT} is in use, falling back to ${server.port}`);
 }
 
-console.log(`Ontol viz → http://localhost:${server.port}`);
+console.log(`Ontol viz → http://localhost:${server.port}${timelineMode ? " (timeline)" : ""}`);

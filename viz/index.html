@@ -443,18 +443,28 @@
       }
     }, { passive: false });
 
-    // Load history (metadata only), then render latest
-    const data = await fetch("/api/snapshots").then(r => r.json());
-    snapshots = data.reverse(); // oldest first
-    activeIndex = snapshots.length - 1;
-    buildNotches();
-    updateNotches();
-    updateLabel();
+    // Check mode from server
+    const { timeline: timelineMode } = await fetch("/api/mode").then(r => r.json());
 
-    // Render the latest snapshot ("Now")
-    const latest = snapshots[activeIndex];
-    if (latest) {
-      const tree = await fetchTree(latest.id);
+    if (timelineMode) {
+      // Load history (metadata only), then render latest
+      const data = await fetch("/api/snapshots").then(r => r.json());
+      snapshots = data.reverse(); // oldest first
+      activeIndex = snapshots.length - 1;
+      buildNotches();
+      updateNotches();
+      updateLabel();
+
+      // Render the latest snapshot ("Now")
+      const latest = snapshots[activeIndex];
+      if (latest) {
+        const tree = await fetchTree(latest.id);
+        render(tree);
+      }
+    } else {
+      // Single snapshot mode — hide timeline pill, load HEAD directly
+      document.getElementById("pill").style.display = "none";
+      const tree = await fetch("/api/tree").then(r => r.json());
       render(tree);
     }
   </script>
