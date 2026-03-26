@@ -119,6 +119,21 @@ const serverOpts = {
       });
     }
 
+    if (url.pathname === "/api/file") {
+      const filePath = url.searchParams.get("path");
+      const commit = url.searchParams.get("commit") || getHeadHash();
+      if (!filePath) return new Response("Missing path", { status: 400 });
+      const result = Bun.spawnSync(
+        ["git", "show", `${commit}:${filePath}`],
+        { cwd: repoPath },
+      );
+      if (result.exitCode !== 0) return new Response("Not found", { status: 404 });
+      const content = result.stdout.toString();
+      return new Response(JSON.stringify({ path: filePath, content }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     return new Response("Not found", { status: 404 });
   },
 };
