@@ -93,7 +93,68 @@
       transition: color 0.2s;
     }
     #legend .clear:hover { color: rgba(255,255,255,0.7); }
+
+    #file-panel-overlay {
+      position: fixed; inset: 0; z-index: 50;
+      background: rgba(0,0,0,0.3);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    #file-panel-overlay.open { opacity: 1; pointer-events: auto; }
+
+    #file-panel {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 51;
+      width: min(680px, 85vw);
+      background: #1e1e2e;
+      border-left: 1px solid rgba(255,255,255,0.08);
+      box-shadow: -8px 0 30px rgba(0,0,0,0.3);
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex; flex-direction: column;
+    }
+    #file-panel.open { transform: translateX(0); }
+
+    #file-panel-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(30,30,46,0.95);
+    }
+    #file-panel-path {
+      flex: 1; min-width: 0;
+      font-family: 'DM Mono', monospace; font-size: 13px;
+      color: rgba(255,255,255,0.7);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #file-panel-close {
+      flex-shrink: 0; width: 28px; height: 28px;
+      border: none; border-radius: 6px;
+      background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.5);
+      font-size: 16px; cursor: pointer; display: grid; place-items: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    #file-panel-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+    #file-panel-body {
+      flex: 1; overflow: auto; padding: 0;
+    }
+    #file-panel-body pre {
+      margin: 0; padding: 16px 20px;
+      font-family: 'DM Mono', monospace;
+      font-size: 13px; line-height: 1.6;
+      tab-size: 2;
+    }
+    #file-panel-body code {
+      color: #e6edf3;
+      background: transparent;
+      padding: 0;
+    }
+    #file-panel-body code.hljs {
+      background: transparent;
+      padding: 0;
+    }
   </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 </head>
 <body>
   <svg id="treemap"></svg>
@@ -102,8 +163,17 @@
     <div id="info-label"></div>
   </div>
   <div id="legend"></div>
+  <div id="file-panel-overlay"></div>
+  <div id="file-panel">
+    <div id="file-panel-header">
+      <span id="file-panel-path"></span>
+      <button id="file-panel-close">&times;</button>
+    </div>
+    <div id="file-panel-body"><pre><code></code></pre></div>
+  </div>
   <script type="module">
     import * as d3 from "https://esm.sh/d3@7";
+    import hljs from "https://esm.sh/highlight.js@11.9.0";
 
     const extOf = name => {
       const i = name.lastIndexOf(".");
@@ -258,6 +328,56 @@
       }
     }
 
+    // --- File panel ---
+
+    const panelOverlay = document.getElementById("file-panel-overlay");
+    const panel = document.getElementById("file-panel");
+    const panelPath = document.getElementById("file-panel-path");
+    const panelCode = document.querySelector("#file-panel-body code");
+    let currentCommit = null;
+
+    const extToLang = {
+      ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+      json: "json", md: "markdown", html: "xml", css: "css",
+      py: "python", rs: "rust", go: "go", yaml: "yaml", yml: "yaml",
+      toml: "ini", sh: "bash", lock: "plaintext",
+    };
+
+    function openFilePanel(filePath) {
+      const commit = currentCommit || "";
+      const qs = commit ? `?path=${encodeURIComponent(filePath)}&commit=${commit}` : `?path=${encodeURIComponent(filePath)}`;
+      panelPath.textContent = filePath;
+      panelCode.textContent = "Loading\u2026";
+      panelCode.className = "";
+      panelOverlay.classList.add("open");
+      panel.classList.add("open");
+
+      const ext = extOf(filePath.split("/").pop() || "");
+      const lang = extToLang[ext] || "";
+
+      fetch(`/api/file${qs}`)
+        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then(({ content }) => {
+          panelCode.textContent = content;
+          if (lang) panelCode.className = `language-${lang}`;
+          hljs.highlightElement(panelCode);
+        })
+        .catch(() => {
+          panelCode.textContent = "Unable to load file contents.";
+        });
+    }
+
+    function closeFilePanel() {
+      panelOverlay.classList.remove("open");
+      panel.classList.remove("open");
+    }
+
+    document.getElementById("file-panel-close").addEventListener("click", closeFilePanel);
+    panelOverlay.addEventListener("click", closeFilePanel);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && panel.classList.contains("open")) closeFilePanel();
+    });
+
     function isAtEnd() {
       return activeIndex === snapshots.length - 1;
     }
@@ -319,10 +439,12 @@
         .attr("fill-opacity", d => d.children ? 0 : 0.7)
         .attr("stroke", d => d.children ? "#bbb" : "none")
         .attr("stroke-width", d => d.children ? folderStroke : 0)
-        .style("cursor", d => d.children ? "pointer" : null)
+        .style("cursor", "pointer")
         .on("click", (event, d) => {
           event.stopPropagation();
-          if (d.children) zoomToNode(d);
+          if (d.children) { zoomToNode(d); return; }
+          const path = d.ancestors().reverse().slice(1).map(a => a.data.name).join("/");
+          openFilePanel(path);
         });
 
       node.selectAll("text").remove();
@@ -407,6 +529,7 @@
       updateNotches();
       const snap = snapshots[i];
       if (snap) {
+        currentCommit = snap.id;
         const tree = await fetchTree(snap.id);
         render(tree);
       }
