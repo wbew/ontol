@@ -358,9 +358,11 @@
       fetch(`/api/file${qs}`)
         .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
         .then(({ content }) => {
-          panelCode.textContent = content;
-          if (lang) panelCode.className = `language-${lang}`;
-          hljs.highlightElement(panelCode);
+          const result = lang
+            ? hljs.highlight(content, { language: lang })
+            : hljs.highlightAuto(content);
+          panelCode.innerHTML = result.value;
+          panelCode.className = `hljs${lang ? ` language-${lang}` : ""}`;
         })
         .catch(() => {
           panelCode.textContent = "Unable to load file contents.";
