@@ -1,0 +1,9 @@
+{
+  "name": "ontol-session",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun server.ts"
+  }
+}

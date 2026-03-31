@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ontol session</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-hover: #1c2129;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-dim: #8b949e;
+      --text-faint: #484f58;
+      --user-accent: #58a6ff;
+      --assistant-accent: #f0883e;
+      --tool-accent: #7ee787;
+      --thinking-accent: #d2a8ff;
+      --sidebar-width: 280px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) 1fr;
+      height: 100vh;
+    }
+
+    /* --- Sidebar --- */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-header {
+      padding: 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      font-family: 'DM Mono', monospace;
+    }
+
+    .session-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .session-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: background 0.1s;
+    }
+
+    .session-item:hover { background: var(--surface-hover); }
+
+    .session-item.active {
+      background: var(--surface-hover);
+      border-left-color: var(--user-accent);
+    }
+
+    .session-slug {
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .session-preview {
+      font-size: 12px;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 6px;
+    }
+
+    .session-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--text-faint);
+      font-family: 'DM Mono', monospace;
+    }
+
+    .branch-badge {
+      background: rgba(88, 166, 255, 0.1);
+      color: var(--user-accent);
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+    }
+
+    /* --- Chat area --- */
+    .chat {
+      overflow-y: auto;
+      padding: 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .chat-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-faint);
+      font-size: 14px;
+    }
+
+    .message {
+      border-left: 3px solid var(--border);
+      padding: 12px 16px;
+      border-radius: 0 6px 6px 0;
+      background: var(--surface);
+      max-width: 900px;
+    }
+
+    .message.user { border-left-color: var(--user-accent); }
+    .message.assistant { border-left-color: var(--assistant-accent); }
+
+    .message-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 11px;
+      font-family: 'DM Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .message-role {
+      font-weight: 600;
+    }
+
+    .message.user .message-role { color: var(--user-accent); }
+    .message.assistant .message-role { color: var(--assistant-accent); }
+
+    .message-time {
+      color: var(--text-faint);
+    }
+
+    .message-content {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .message.user .message-content {
+      white-space: pre-wrap;
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    /* Markdown in assistant messages */
+    .message-content p { margin-bottom: 8px; }
+    .message-content p:last-child { margin-bottom: 0; }
+    .message-content pre {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .message-content code {
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+    }
+    .message-content :not(pre) > code {
+      background: var(--bg);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    .message-content ul, .message-content ol {
+      margin: 8px 0;
+      padding-left: 24px;
+    }
+    .message-content li { margin-bottom: 4px; }
+    .message-content a { color: var(--user-accent); }
+    .message-content blockquote {
+      border-left: 3px solid var(--border);
+      padding-left: 12px;
+      color: var(--text-dim);
+      margin: 8px 0;
+    }
+    .message-content h1, .message-content h2, .message-content h3 {
+      margin: 12px 0 8px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .message-content table {
+      border-collapse: collapse;
+      margin: 8px 0;
+      font-size: 13px;
+    }
+    .message-content th, .message-content td {
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+    }
+    .message-content th {
+      background: var(--bg);
+      font-weight: 600;
+    }
+
+    /* --- Collapsible blocks --- */
+    .collapsible {
+      margin: 8px 0;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .collapsible-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      background: var(--bg);
+      user-select: none;
+    }
+
+    .collapsible-header:hover { background: var(--surface-hover); }
+
+    .collapsible-chevron {
+      transition: transform 0.15s;
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    .collapsible.open .collapsible-chevron {
+      transform: rotate(90deg);
+    }
+
+    .collapsible-label {
+      font-weight: 500;
+    }
+
+    .collapsible.tool_use .collapsible-label { color: var(--tool-accent); }
+    .collapsible.tool_result .collapsible-label { color: var(--tool-accent); opacity: 0.7; }
+    .collapsible.thinking .collapsible-label { color: var(--thinking-accent); }
+
+    .collapsible-preview {
+      color: var(--text-faint);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .collapsible-body {
+      display: none;
+      padding: 12px;
+      max-height: 400px;
+      overflow: auto;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-top: 1px solid var(--border);
+    }
+
+    .collapsible.open .collapsible-body {
+      display: block;
+    }
+
+    /* --- Truncation --- */
+    .show-more-btn {
+      background: none;
+      border: none;
+      color: var(--user-accent);
+      cursor: pointer;
+      font-size: 12px;
+      font-family: 'DM Mono', monospace;
+      padding: 4px 0;
+      margin-top: 4px;
+    }
+
+    .show-more-btn:hover { text-decoration: underline; }
+
+    /* --- Stats summary --- */
+    .stats-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      max-width: 900px;
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-faint);
+    }
+
+    .stat-value {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .stat-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 2px;
+    }
+
+    .tool-chip {
+      background: rgba(126, 231, 135, 0.1);
+      color: var(--tool-accent);
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+    }
+
+    /* --- Scrollbar --- */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="sidebar">
+      <div class="sidebar-header">Sessions</div>
+      <div class="session-list" id="sessionList"></div>
+    </div>
+    <div class="chat" id="chat">
+      <div class="chat-empty">Select a session to view</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { marked } from "https://esm.sh/marked@15";
+
+    marked.setOptions({ breaks: true, gfm: true });
+
+    const sessionList = document.getElementById("sessionList");
+    const chat = document.getElementById("chat");
+    const sessionCache = new Map();
+    let activeSessionId = null;
+
+    // --- Helpers ---
+
+    function formatTokens(n) {
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+      if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+      return String(n);
+    }
+
+    function formatDuration(ms) {
+      if (ms < 60_000) return Math.round(ms / 1000) + "s";
+      const mins = Math.floor(ms / 60_000);
+      if (mins < 60) return mins + "m";
+      const hrs = Math.floor(mins / 60);
+      const rem = mins % 60;
+      return hrs + "h " + rem + "m";
+    }
+
+    function relativeTime(iso) {
+      const diff = Date.now() - new Date(iso).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) return "just now";
+      if (mins < 60) return `${mins}m ago`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return `${hrs}h ago`;
+      const days = Math.floor(hrs / 24);
+      if (days < 30) return `${days}d ago`;
+      return new Date(iso).toLocaleDateString();
+    }
+
+    function formatTime(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // --- Collapsible ---
+
+    function createCollapsible(type, label, preview, bodyText, startOpen = false) {
+      const el = document.createElement("div");
+      el.className = `collapsible ${type}${startOpen ? " open" : ""}`;
+      el.innerHTML = `
+        <div class="collapsible-header">
+          <span class="collapsible-chevron">&#9654;</span>
+          <span class="collapsible-label">${escapeHtml(label)}</span>
+          <span class="collapsible-preview">${escapeHtml(preview.slice(0, 80))}</span>
+        </div>
+        <div class="collapsible-body">${escapeHtml(bodyText)}</div>
+      `;
+      el.querySelector(".collapsible-header").addEventListener("click", () => {
+        el.classList.toggle("open");
+      });
+      return el;
+    }
+
+    // --- Content rendering ---
+
+    function extractText(content) {
+      if (typeof content === "string") return content;
+      if (Array.isArray(content)) {
+        return content
+          .filter((p) => p.type === "text")
+          .map((p) => p.text || "")
+          .join("");
+      }
+      return String(content || "");
+    }
+
+    function toolResultText(content) {
+      if (typeof content === "string") return content;
+      if (Array.isArray(content)) {
+        return content.map((p) => p.text || JSON.stringify(p)).join("\n");
+      }
+      return String(content || "");
+    }
+
+    function renderContent(msg) {
+      const frag = document.createDocumentFragment();
+
+      if (typeof msg.content === "string") {
+        if (msg.type === "assistant") {
+          const div = document.createElement("div");
+          div.innerHTML = marked.parse(msg.content);
+          frag.appendChild(maybeTruncate(div, msg.content));
+        } else {
+          const div = document.createElement("div");
+          div.textContent = msg.content;
+          frag.appendChild(maybeTruncate(div, msg.content));
+        }
+        return frag;
+      }
+
+      if (!Array.isArray(msg.content)) return frag;
+
+      for (const part of msg.content) {
+        if (part.type === "text" && part.text) {
+          const div = document.createElement("div");
+          if (msg.type === "assistant") {
+            div.innerHTML = marked.parse(part.text);
+          } else {
+            div.textContent = part.text;
+          }
+          frag.appendChild(maybeTruncate(div, part.text));
+        } else if (part.type === "tool_use") {
+          const inputStr = JSON.stringify(part.input || {}, null, 2);
+          frag.appendChild(
+            createCollapsible("tool_use", part.name || "tool", inputStr.slice(0, 80), inputStr)
+          );
+        } else if (part.type === "tool_result") {
+          const text = toolResultText(part.content);
+          frag.appendChild(
+            createCollapsible("tool_result", "result", text.slice(0, 80), text)
+          );
+        } else if (part.type === "thinking" && part.thinking) {
+          frag.appendChild(
+            createCollapsible("thinking", "thinking", part.thinking.slice(0, 80), part.thinking, true)
+          );
+        }
+      }
+
+      return frag;
+    }
+
+    function maybeTruncate(el, raw, limit = 1500) {
+      if (raw.length <= limit) return el;
+      const wrapper = document.createElement("div");
+      const preview = document.createElement("div");
+      const full = document.createElement("div");
+      const btn = document.createElement("button");
+
+      preview.innerHTML = el.innerHTML
+        ? marked.parse(raw.slice(0, limit) + "...")
+        : "";
+      if (!el.innerHTML) preview.textContent = raw.slice(0, limit) + "...";
+      full.appendChild(el);
+      full.style.display = "none";
+      btn.className = "show-more-btn";
+      btn.textContent = `show more (${(raw.length / 1024).toFixed(1)}kb)`;
+      let expanded = false;
+      btn.addEventListener("click", () => {
+        expanded = !expanded;
+        preview.style.display = expanded ? "none" : "block";
+        full.style.display = expanded ? "block" : "none";
+        btn.textContent = expanded
+          ? "show less"
+          : `show more (${(raw.length / 1024).toFixed(1)}kb)`;
+      });
+
+      wrapper.appendChild(preview);
+      wrapper.appendChild(full);
+      wrapper.appendChild(btn);
+      return wrapper;
+    }
+
+    // --- Render session list ---
+
+    async function loadSessions() {
+      const res = await fetch("/api/sessions");
+      const sessions = await res.json();
+
+      if (sessions.length === 0) {
+        sessionList.innerHTML = `<div style="padding:16px;color:var(--text-faint);font-size:13px;">No sessions found</div>`;
+        return;
+      }
+
+      sessionList.innerHTML = "";
+      for (const s of sessions) {
+        const item = document.createElement("div");
+        item.className = "session-item";
+        item.dataset.id = s.id;
+        item.innerHTML = `
+          <div class="session-slug">${escapeHtml(s.slug)}</div>
+          <div class="session-preview">${escapeHtml(s.firstMessage)}</div>
+          <div class="session-meta">
+            <span>${relativeTime(s.timestamp)}</span>
+            ${s.gitBranch ? `<span class="branch-badge">${escapeHtml(s.gitBranch)}</span>` : ""}
+            <span>${s.messageCount} msgs</span>
+          </div>
+        `;
+        item.addEventListener("click", () => selectSession(s.id));
+        sessionList.appendChild(item);
+      }
+
+      // Auto-select most recent
+      selectSession(sessions[0].id);
+    }
+
+    // --- Render session messages ---
+
+    function renderStats(stats) {
+      const bar = document.createElement("div");
+      bar.className = "stats-bar";
+
+      const items = [
+        ["model", stats.model || "unknown"],
+        ["duration", formatDuration(stats.durationMs)],
+        ["turns", `${stats.userTurns} user / ${stats.assistantTurns} assistant`],
+        ["input tokens", formatTokens(stats.inputTokens)],
+        ["output tokens", formatTokens(stats.outputTokens)],
+        ["cache read", formatTokens(stats.cacheReadTokens)],
+        ["cache write", formatTokens(stats.cacheCreationTokens)],
+        ["tool calls", `${stats.totalToolCalls} total / ${stats.uniqueTools.length} unique`],
+      ];
+
+      for (const [label, value] of items) {
+        const stat = document.createElement("div");
+        stat.className = "stat";
+        stat.innerHTML = `<span class="stat-label">${label}</span><span class="stat-value">${escapeHtml(value)}</span>`;
+        bar.appendChild(stat);
+      }
+
+      // Tool chips
+      if (stats.uniqueTools.length > 0) {
+        const toolStat = document.createElement("div");
+        toolStat.className = "stat";
+        toolStat.innerHTML = `<span class="stat-label">tools used</span>`;
+        const chips = document.createElement("div");
+        chips.className = "stat-tools";
+        for (const t of stats.uniqueTools) {
+          chips.innerHTML += `<span class="tool-chip">${escapeHtml(t)}</span>`;
+        }
+        toolStat.appendChild(chips);
+        bar.appendChild(toolStat);
+      }
+
+      return bar;
+    }
+
+    async function selectSession(id) {
+      if (activeSessionId === id) return;
+      activeSessionId = id;
+
+      // Update sidebar active state
+      document.querySelectorAll(".session-item").forEach((el) => {
+        el.classList.toggle("active", el.dataset.id === id);
+      });
+
+      // Check cache
+      let data;
+      if (sessionCache.has(id)) {
+        data = sessionCache.get(id);
+      } else {
+        chat.innerHTML = `<div class="chat-empty">Loading...</div>`;
+        const res = await fetch(`/api/session/${id}`);
+        data = await res.json();
+        sessionCache.set(id, data);
+      }
+
+      chat.innerHTML = "";
+
+      // Stats summary
+      if (data.stats) {
+        chat.appendChild(renderStats(data.stats));
+      }
+
+      for (const msg of data.messages) {
+        const el = document.createElement("div");
+        el.className = `message ${msg.type}`;
+
+        const header = document.createElement("div");
+        header.className = "message-header";
+        header.innerHTML = `
+          <span class="message-role">${msg.role}</span>
+          <span class="message-time">${formatTime(msg.timestamp)}</span>
+        `;
+        el.appendChild(header);
+
+        const content = document.createElement("div");
+        content.className = "message-content";
+        content.appendChild(renderContent(msg));
+        el.appendChild(content);
+
+        chat.appendChild(el);
+      }
+
+      chat.scrollTop = 0;
+    }
+
+    // --- Init ---
+    loadSessions();
+  </script>
+</body>
+</html>

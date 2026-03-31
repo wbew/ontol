@@ -13,9 +13,15 @@ if (command === "viz") {
   process.env.ONTOL_REPO_PATH = resolve(pathArg || process.cwd());
   process.env.ONTOL_TIMELINE = timeline ? "1" : "";
   await import(resolve(__dir, "viz/server.ts"));
+} else if (command === "session") {
+  const args = process.argv.slice(3);
+  const pathArg = args.find(a => !a.startsWith("--"));
+  process.env.ONTOL_PROJECT_PATH = resolve(pathArg || process.cwd());
+  await import(resolve(__dir, "session/server.ts"));
 } else {
   console.log("Usage: ontol <command>\n");
   console.log("Commands:");
   console.log("  viz [path] [--timeline]  Visualize a git repository (defaults to current directory)");
+  console.log("  session [path]           Browse Claude sessions for a project (defaults to current directory)");
   process.exit(1);
 }
