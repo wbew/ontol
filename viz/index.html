@@ -9,8 +9,21 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'DM Sans', sans-serif; background: #fff; color: #333; }
     svg { display: block; width: 100vw; height: 100vh; }
-    .file-label { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #333; pointer-events: none; }
-    .folder-label { font-family: 'DM Sans', sans-serif; font-size: 10px; fill: #999; pointer-events: none; }
+    .file-label { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #222; pointer-events: none; }
+    .folder-label {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      fill: #111;
+      paint-order: stroke;
+      stroke: rgba(255,255,255,0.92);
+      stroke-width: 3px;
+      stroke-linejoin: round;
+      pointer-events: none;
+    }
+    .cell {
+      shape-rendering: crispEdges;
+      vector-effect: non-scaling-stroke;
+    }
 
     #pill {
       position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
@@ -84,7 +97,7 @@
     }
     #legend .item { display: flex; align-items: center; gap: 6px; cursor: pointer; transition: opacity 0.2s; }
     #legend .swatch {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
     }
     #legend .clear {
       grid-column: 1 / -1;
@@ -263,32 +276,30 @@
     let activeIndex = -1;
     const treeCache = new Map();
     let currentRoot = null;
-    let packSize = 0;
+    let layoutSize = 0;
     let currentK = 1;
     let activeFilters = new Set();
 
     // Pre-cached label arrays — rebuilt on render, avoids selectAll per frame
-    let folderLabels = []; // {el, r}
-    let fileLabels = [];   // {el, r}
+    let folderLabels = []; // {el, width, height, textWidth}
+    let fileLabels = [];   // {el, width, height, textWidth}
 
     function applyLabels(k) {
       const s = 1 / k;
 
       for (let i = 0; i < folderLabels.length; i++) {
-        const { el, r } = folderLabels[i];
-        const visible = r * k > 40;
+        const { el, width, height, textWidth } = folderLabels[i];
+        const visible = width * k > textWidth + 20 && height * k > 34;
         el.style.display = visible ? "" : "none";
         if (visible) {
-          // Translate to top of circle in pack-space, then counter-scale
-          const offset = -r + 12 * s;
-          el.setAttribute("transform", `translate(0,${offset}) scale(${s})`);
+          el.setAttribute("transform", `translate(${9 * s},${18 * s}) scale(${s})`);
         }
       }
       for (let i = 0; i < fileLabels.length; i++) {
-        const { el, r } = fileLabels[i];
-        const visible = r * k > 18;
+        const { el, width, height, textWidth } = fileLabels[i];
+        const visible = width * k > textWidth + 10 && height * k > 20;
         el.style.display = visible ? "" : "none";
-        if (visible) el.setAttribute("transform", `scale(${s})`);
+        if (visible) el.setAttribute("transform", `translate(${width / 2},${height / 2}) scale(${s})`);
       }
     }
 
@@ -300,7 +311,7 @@
         const ext = extOf(d.data.name);
         const match = !hasFilter || activeFilters.has(ext);
         const el = d3.select(this);
-        el.select("circle").attr("fill-opacity", match ? 0.7 : 0.08);
+        el.select("rect").attr("fill-opacity", match ? 0.78 : 0.08);
         el.select(".file-label").style("opacity", match ? null : "0");
       });
 
@@ -400,9 +411,11 @@
       if (!node) return;
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const scale = Math.min(w, h) / (node.r * 2) * 0.9;
-      const tx = w / 2 - node.x * scale;
-      const ty = h / 2 - node.y * scale;
+      const nodeWidth = Math.max(1, node.x1 - node.x0);
+      const nodeHeight = Math.max(1, node.y1 - node.y0);
+      const scale = Math.min(w / nodeWidth, h / nodeHeight) * 0.92;
+      const tx = w / 2 - (node.x0 + nodeWidth / 2) * scale;
+      const ty = h / 2 - (node.y0 + nodeHeight / 2) * scale;
       const t = d3.zoomIdentity.translate(tx, ty).scale(scale);
       if (animate) {
         svg.transition().duration(750).call(zoom.transform, t);
@@ -413,16 +426,22 @@
 
     function render(data) {
       buildLegend(data);
-      packSize = Math.min(window.innerWidth, window.innerHeight);
+      layoutSize = Math.min(window.innerWidth, window.innerHeight);
 
       const root = d3.hierarchy(data)
         .sum(d => d.value || 0)
         .sort((a, b) => (b.value || 0) - (a.value || 0));
 
-      d3.pack().size([packSize, packSize]).padding(3)(root);
+      d3.treemap()
+        .tile(d3.treemapSquarify.ratio(1))
+        .size([layoutSize, layoutSize])
+        .paddingOuter(d => d.depth === 0 ? 0 : 3)
+        .paddingInner(d => d.children ? 2 : 0)
+        .paddingTop(d => d.depth > 0 && d.children ? 24 : 0)
+        .round(true)(root);
 
       const fileCount = root.leaves().length;
-      const folderStroke = fileCount > 500 ? 0.8 : fileCount > 200 ? 1.2 : fileCount > 100 ? 1.8 : 2.5;
+      const folderStroke = fileCount > 500 ? 0.7 : fileCount > 200 ? 1 : fileCount > 100 ? 1.3 : 1.6;
       currentRoot = root;
 
       svg.call(zoom);
@@ -432,15 +451,17 @@
       const node = g.selectAll("g")
         .data(root.descendants(), d => d.ancestors().reverse().map(d => d.data.name).join("/"))
         .join("g")
-        .attr("transform", d => `translate(${d.x},${d.y})`);
+        .attr("transform", d => `translate(${d.x0},${d.y0})`);
 
-      node.selectAll("circle").remove();
-      node.append("circle")
-        .attr("r", d => d.r)
-        .attr("fill", d => d.children ? "#fff" : colorFor(d.data.name))
-        .attr("fill-opacity", d => d.children ? 0 : 0.7)
-        .attr("stroke", d => d.children ? "#bbb" : "none")
-        .attr("stroke-width", d => d.children ? folderStroke : 0)
+      node.selectAll("circle, rect").remove();
+      node.append("rect")
+        .attr("class", "cell")
+        .attr("width", d => Math.max(0, d.x1 - d.x0))
+        .attr("height", d => Math.max(0, d.y1 - d.y0))
+        .attr("fill", d => d.children ? "transparent" : colorFor(d.data.name))
+        .attr("fill-opacity", d => d.children ? 0 : 0.78)
+        .attr("stroke", d => d.children ? "#c9c9c9" : "rgba(255,255,255,0.75)")
+        .attr("stroke-width", d => d.children ? folderStroke : 0.5)
         .style("cursor", "pointer")
         .on("click", (event, d) => {
           event.stopPropagation();
@@ -454,8 +475,8 @@
       node.filter(d => d.children && d.depth > 0)
         .append("text")
         .attr("class", "folder-label")
-        .attr("text-anchor", "middle")
-        .style("font-weight", "bold")
+        .attr("text-anchor", "start")
+        .style("font-weight", 700)
         .text(d => d.data.name);
 
       node.filter(d => !d.children)
@@ -480,11 +501,21 @@
       fileLabels = [];
       g.selectAll(".folder-label").each(function() {
         const d = d3.select(this.parentNode).datum();
-        folderLabels.push({ el: this, r: d.r });
+        folderLabels.push({
+          el: this,
+          width: d.x1 - d.x0,
+          height: d.y1 - d.y0,
+          textWidth: this.getComputedTextLength(),
+        });
       });
       g.selectAll(".file-label").each(function() {
         const d = d3.select(this.parentNode).datum();
-        fileLabels.push({ el: this, r: d.r });
+        fileLabels.push({
+          el: this,
+          width: d.x1 - d.x0,
+          height: d.y1 - d.y0,
+          textWidth: this.getComputedTextLength(),
+        });
       });
 
       // Initial fit — no animation, no flash
